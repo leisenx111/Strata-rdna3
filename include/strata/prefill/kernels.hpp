@@ -133,6 +133,9 @@ void add_f32(float* dst, const float* src, int64_t n, void* stream);
 /// [claude] waits (on the device) until *flag == want (a coherent mapped host flag the CPU raises), then
 /// dst[i] += src[i] with src in coherent mapped host memory
 void add_f32_mapped_wait(float* dst, const float* src, int64_t n, const uint32_t* flag, uint32_t want, void* stream);
+/// Few-row experts (fewrows.hpp): writes one expert's native_expert_grouped plan on the device, so no host buffer is
+/// involved: rec = {u64 blob, i32 start[2] = {0, ne}, i32 n_groups = 1, i32 pad, i32 dst[ne] = o0 + i}.  1 <= ne <= 32.
+void fewrows_record(void* rec, const void* blob, int ne, int o0, void* stream);
 /// Gather rows: dst16[i, :] = x16[src[i], :] (n rows of `width` BF16).
 void gather_rows16(const uint16_t* x16, const int32_t* src, uint16_t* dst16, int64_t n, int64_t width, void* stream);
 /// bo[t, :] = shared[t, :] * sigmoid(sg[t]) + sum_k w[t, k] * D[slot[t, k], :]

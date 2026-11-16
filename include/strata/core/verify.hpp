@@ -234,6 +234,11 @@ public:
     /// commit() for this card alone (TP: the caller commits the peer itself, e.g. on another thread).
     bool commit_one(int n_keep, std::string& err);
 
+    /// Is the last window's state change still undone (only `commit` / `pl_commit_async` advances it)?  False for a one-token
+    /// window that advanced the state itself (see commit), and on every stage of a chain.  serve_skip_stopped_window asks this
+    /// before it drops a window nobody will read.
+    bool commit_deferred() const;
+
     // ================================ SEVERAL SEQUENCES IN ONE WINDOW ================================
     //
     // A batch window holds S INDEPENDENT sequences, one token each: row s is slot s, at slot s's own position,
