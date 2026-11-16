@@ -115,6 +115,52 @@ bool gfx12_prefill_share_default(const char* gcn_arch) {
     return gfx12_prefill_share_default(gcn_arch, strata::qwen_defaults_026());
 }
 
+// [claude] 2026-11-11 (merged from the rdna3 fork, review 2 section 4): the discrete gfx1100 (RX 7900 XTX) settings that
+// every production entry of a line set identically, as defaults (a setting in the environment always wins;
+// STRATA_GFX1100_DEFAULTS=0 turns the table off).  Each value is the one the aibox profiles ran with; the per-pack
+// thresholds stay in the profiles.  Coupled groups are kept in one tier: PF_NO_GATED + HC_UPMIX; TP_PREFILL + DP_PREFILL +
+// KV_HOST_DMA + the GDN set; TP_SHARE_DP + DP_PREFILL; PF_PAD + PF_GEMM; PA_FAST + HIP_WMMA; PREFILL_SMALL_MAX +
+// _SMALL_RING; the REFILL_* set.
+std::vector<std::pair<std::string, std::string>> gfx1100_default_env(const char* gcn_arch, int n_devices, bool tensor_parallel) {
+    std::vector<std::pair<std::string, std::string>> t;
+    if (gcn_arch == nullptr || n_devices < 1 || !strata::kernels::gfx_arch_is(gcn_arch, "gfx1100")) return t;   // (0: count unknown)
+    const char* off = std::getenv("STRATA_GFX1100_DEFAULTS");
+    if (off != nullptr && off[0] == '0') return t;
+    t = {   // tier A: one card or two
+        {"STRATA_HIP_WMMA", "1"}, {"STRATA_SELECT_WMMA", "1"}, {"STRATA_RDNA_MMVQ_WAVE", "3"},
+        {"STRATA_COMBINE_CPU", "1"}, {"STRATA_EMB_REUSE_ACCOUNT", "1"}, {"STRATA_FUSE_CONVAB", "1"},
+        {"STRATA_GDN_CHUNKED", "1"}, {"STRATA_GDN_CHUNK_GDV", "0"}, {"STRATA_GDN_CONVL2", "1"}, {"STRATA_GDN_HEAD", "1"},
+        {"STRATA_GDN_NOY", "1"}, {"STRATA_GDN_PP", "1"},
+        {"STRATA_GR_FUSED", "1"}, {"STRATA_GR_INJ_UP", "1"}, {"STRATA_GR_RDNA", "1"}, {"STRATA_GR_RDNA_A8", "1"}, {"STRATA_GR_RDNA_Q8", "1"},
+        {"STRATA_HC_UPMIX", "1"}, {"STRATA_HEAD_MIX_MULTI", "1"}, {"STRATA_KV_HOST_DMA", "1"}, {"STRATA_PA_FAST", "1"},
+        {"STRATA_PF_F16", "2"}, {"STRATA_PF_FUSED", "1"}, {"STRATA_PF_GEMM", "1"}, {"STRATA_PF_HCDOWN", "1"},
+        {"STRATA_PF_NO_GATED", "1"}, {"STRATA_PF_PAD", "1"}, {"STRATA_QFUSE", "1"}, {"STRATA_QSA_ROWS", "1"},
+        {"STRATA_RDNA_Q6K", "1"}, {"STRATA_ROUTE_PUBLISH", "1"}, {"STRATA_ROUTE_TAIL_SKIP", "0"}, {"STRATA_STAGER_RING", "64"},
+        {"STRATA_TOPK_SPLIT_MIN", "98304"}, {"STRATA_VERIFY_QDEDUP", "1"}, {"STRATA_WAIT_FUSE", "1"},
+    };
+    if (tensor_parallel && n_devices >= 2) {   // tier B: the TP pair
+        const std::vector<std::pair<std::string, std::string>> b = {
+            {"STRATA_CKPT_POOL", "1"}, {"STRATA_CKPT_THREADS", "1"}, {"STRATA_DP_PREFILL", "1"}, {"STRATA_MEGAKERNEL", "1"},
+            {"STRATA_MTP_DRAFT_ALL", "1"}, {"STRATA_MTP_GR_R8", "1"}, {"STRATA_MTP_MULTICOPY", "1"}, {"STRATA_MTP_QFUSE", "1"},
+            {"STRATA_SPLIT_MTP_BATCH", "1"}, {"STRATA_PREFILL_HELP", "1"}, {"STRATA_PREFILL_LEND_PCT", "93"},
+            {"STRATA_PREFILL_RING", "384"}, {"STRATA_PREFILL_SMALL_MAX", "4096"}, {"STRATA_PREFILL_SMALL_RING", "96"},
+            {"STRATA_PREFILL_STREAM_MIN", "480"}, {"STRATA_FUSED_ROUTED", "1"}, {"STRATA_FUSED_CPU_FRAC", "0.6"},
+            {"STRATA_REFILL_OVERLAP", "1"}, {"STRATA_REFILL_SDMA", "1"}, {"STRATA_REFILL_EARLY_TP", "1"},
+            {"STRATA_REFILL_JOIN", "landed"}, {"STRATA_REFILL_JOIN_NOW", "1"}, {"STRATA_REFILL_TRANCHE_SLOTS", "128"},
+            {"STRATA_REFILL_HEAD_TP_MIN", "8449"}, {"STRATA_TP_ALIAS_MAP", "rows"}, {"STRATA_TP_BACK_SKIP", "1"},
+            {"STRATA_TP_PRECOPY", "1"}, {"STRATA_TP_MOVE_NOPOOL", "1"}, {"STRATA_TP_NOMEMSET", "1"}, {"STRATA_TP_PREFILL", "1"},
+            {"STRATA_TP_PREFILL_OWNROWS", "1"}, {"STRATA_TP_SHARE_DP", "1"},
+        };
+        t.insert(t.end(), b.begin(), b.end());
+    } else if (!tensor_parallel && n_devices == 1) {   // tier C: one card
+        const std::vector<std::pair<std::string, std::string>> c = {
+            {"STRATA_ADAPT_OVERLAP", "1"}, {"STRATA_PREFILL_CPU_SHARE", "0.6"}, {"STRATA_PREFILL_EQUAL", "1"},
+        };
+        t.insert(t.end(), c.begin(), c.end());
+    }
+    return t;
+}
+
 bool igpu_prompt_defaults_arch(const char* gcn_arch) {
     return strata::kernels::gfx_arch_is(gcn_arch, "gfx1103") || strata::kernels::gfx_arch_is(gcn_arch, "gfx1150") ||
            strata::kernels::gfx_arch_is(gcn_arch, "gfx1151");
@@ -276,8 +322,23 @@ std::vector<std::pair<std::string, std::string>> launch_default_env(const char* 
     return t;
 }
 
-std::vector<std::string> apply_arch_defaults(const char* gcn_arch, bool integrated, int batch_slots) {
+std::vector<std::string> apply_arch_defaults(const char* gcn_arch, bool integrated, int batch_slots,
+                                             int n_devices, bool tensor_parallel) {
     std::vector<std::string> set;
+    {   // the gfx1100 (RX 7900 XTX) tuned table: its own line, joined to the list at the end
+        std::vector<std::string> g;
+        for (const auto& kv : gfx1100_default_env(integrated ? nullptr : gcn_arch, n_devices, tensor_parallel)) {
+            if (std::getenv(kv.first.c_str()) != nullptr) continue;
+            set_default(kv);
+            g.push_back(kv.first);
+        }
+        if (!g.empty()) {
+            std::fprintf(stderr, "strata: gfx1100 (%s): %zu tuned switches on by default (STRATA_GFX1100_DEFAULTS=0 turns them off; a switch "
+                                 "you set is kept): ", tensor_parallel && n_devices >= 2 ? "TP pair" : n_devices == 1 ? "one card" : "cards", g.size());
+            for (size_t i = 0; i < g.size(); ++i) std::fprintf(stderr, "%s%s", i ? " " : "", g[i].c_str() + 7);
+            std::fprintf(stderr, "\n");
+        }
+    }
     // the community-made gfx1010 / gfx1030 changes (amd_community.hpp): one line, and only on those two cards
     if (const std::string note = strata::amd_community::startup_line(gcn_arch); !note.empty())
         std::fprintf(stderr, "%s\n", note.c_str());

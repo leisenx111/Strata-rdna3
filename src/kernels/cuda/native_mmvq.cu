@@ -2371,10 +2371,39 @@ bool g_wave_off = std::getenv("STRATA_MMVQ_WAVE") && std::string(std::getenv("ST
 #else
 // RDNA wave32 prototype, opt-in until measured and checked on the target card.
 constexpr int NATIVE_WAVE = 32;
-const char* g_rdna_wave_env = std::getenv("STRATA_RDNA_MMVQ_WAVE");
-const bool g_wave_exact = g_rdna_wave_env && std::string(g_rdna_wave_env) == "3";
-const bool g_wave_shapes = g_wave_exact || (g_rdna_wave_env && std::string(g_rdna_wave_env) == "2");
-bool g_wave_off = !(g_wave_exact || g_wave_shapes || (g_rdna_wave_env && std::string(g_rdna_wave_env) == "1"));
+// [claude] 2026-11-11 (from the rdna3 fork): read at first use, not at static initialisation, so the gfx1100 table of
+// strata/core/arch_defaults (applied in main, after the device is known) can set STRATA_RDNA_MMVQ_WAVE=3
+struct RdnaWaveMode { bool exact, shapes; };
+static const RdnaWaveMode& rdna_wave_mode() {
+    static const RdnaWaveMode m = [] {
+        const char* e = std::getenv("STRATA_RDNA_MMVQ_WAVE");
+        const std::string s = e == nullptr ? std::string() : std::string(e);
+        RdnaWaveMode r{};
+        r.exact = s == "3";
+        r.shapes = r.exact || s == "2";
+        return r;
+    }();
+    return m;
+}
+// (g_wave_off stays lazy too: the same reason as above - the table runs in main)
+struct RdnaWaveOff {
+    bool off;
+    RdnaWaveOff() {
+        const RdnaWaveMode& m = rdna_wave_mode();
+        bool one = false;
+        if (!m.exact && !m.shapes) {
+            const char* e = std::getenv("STRATA_RDNA_MMVQ_WAVE");
+            one = e != nullptr && std::string(e) == "1";
+        }
+        off = !(m.exact || m.shapes || one);
+    }
+};
+static const bool g_wave_exact = rdna_wave_mode().exact;
+static const bool g_wave_shapes = rdna_wave_mode().shapes;
+static bool wave_off() {
+    static const RdnaWaveOff o;
+    return o.off;
+}
 #endif
 constexpr int NATIVE_WAVES_PER_BLOCK = 256 / NATIVE_WAVE;
 template<typename F, int NCOLS, int R>
@@ -2500,7 +2529,7 @@ void wave_launch(const void* weights, const void* x_q8_1, float* y, int n_in, in
     }
 }
 #define STRATA_WAVE_MMVQ(...) \
-    if (!g_wave_off) { wave_launch<__VA_ARGS__>(weights, x_q8_1, y, n_in, n_out, ncols, stream); launch_check(); return; }
+    if (!wave_off()) { wave_launch<__VA_ARGS__>(weights, x_q8_1, y, n_in, n_out, ncols, stream); launch_check(); return; }
 #else
 #define STRATA_WAVE_MMVQ(...)
 #endif

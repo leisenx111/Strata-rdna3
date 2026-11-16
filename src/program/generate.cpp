@@ -3936,7 +3936,9 @@ int main(int argc, char** argv) {
                 strata::core::apply_gdn_chunked_default(true, all_gfx12);
 #endif
             }
-            strata::core::apply_arch_defaults(ad.gcnArchName, all_igpu, o.batch);
+            int n_dev_all = 0;
+            if (cudaGetDeviceCount(&n_dev_all) != cudaSuccess) { n_dev_all = 0; (void) cudaGetLastError(); }
+            strata::core::apply_arch_defaults(ad.gcnArchName, all_igpu, o.batch, n_dev_all, o.tensor_parallel != 0);
 #if defined(_WIN32)
             const bool win_host = true;
 #else
@@ -10265,7 +10267,12 @@ int main(int argc, char** argv) {
         if (!equal_chunks || tokens <= 0 || max_chunk <= 0) return plain;
         const int64_t n = tokens / max_chunk + (tokens % max_chunk != 0);
         const int64_t last = tokens - (n - 1) * max_chunk;
-        if (n <= 1 || last < strata::prefill::Prefill::stream_all_min_tokens()) return plain;
+        // [claude] 2026-11-11 (from the rdna3 fork, 5906629d): STRATA_PREFILL_EQUAL_TAIL_MAX=<tokens>: the short-last-chunk
+        // exception only for chunks up to that size.  With a 49152 STRATA_PREFILL_AUTO_MAX a 57K prompt read 49152 + 8185:
+        // the 49152 loan took 81% of a Q4 1-GPU cache, so both passes streamed nearly every expert (18.6 s against 15.35 s
+        // in two 28672 chunks); past the limit the prompt is split evenly whatever its tail.  Default 32768 since 11-11.
+        static const int64_t equal_tail_max = [] { const char* v = std::getenv("STRATA_PREFILL_EQUAL_TAIL_MAX"); return v ? (int64_t) std::atoll(v) : (int64_t) 32768; }();
+        if (n <= 1 || (last < strata::prefill::Prefill::stream_all_min_tokens() && max_chunk <= equal_tail_max)) return plain;
         const int64_t per = tokens / n + (tokens % n != 0);
         const int64_t rounded = per > std::numeric_limits<int64_t>::max() - 255 ? per : ((per + 255) / 256) * 256;
         return std::min(max_chunk, rounded);

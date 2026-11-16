@@ -104,6 +104,11 @@ std::vector<std::pair<std::string, std::string>> launch_default_env(const char* 
 /// environment where the user has not set the variable, prints one line to stderr per table when it set anything, and
 /// returns the names it set.  `integrated` is true when every visible GPU is an integrated one.  Call once, before any
 /// engine code reads its switches (they are read lazily, at first use).
-std::vector<std::string> apply_arch_defaults(const char* gcn_arch, bool integrated = false, int batch_slots = 0);
+/// The tuned switches every discrete gfx1100 (RX 7900 XTX) production profile set identically, as engine defaults
+/// (merged from the rdna3 fork, 2026-11-11): a switch the user sets always wins, STRATA_GFX1100_DEFAULTS=0 turns the whole
+/// table off.  Three tiers: A (one card or two), B (the tensor-parallel pair), C (one card only).  Empty for other archs.
+std::vector<std::pair<std::string, std::string>> gfx1100_default_env(const char* gcn_arch, int n_devices, bool tensor_parallel);
+std::vector<std::string> apply_arch_defaults(const char* gcn_arch, bool integrated = false, int batch_slots = 0,
+                                             int n_devices = 0, bool tensor_parallel = false);
 
 }  // namespace strata::core
